@@ -2,7 +2,7 @@ package main
 
 import (
 	"encoding/json"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	v1beta1 "k8s.io/api/admission/v1beta1"
-	// m "github.com/alex-leonhardt/k8s-mutate-webhook/pkg/mutate"
+	// m "github.com/karthick-kk/k8s-mutate-webhook-addca/pkg/mutate"
 )
 
 func TestHandleMutateErrors(t *testing.T) {
@@ -22,7 +22,7 @@ func TestHandleMutateErrors(t *testing.T) {
 	resp, err := http.Get(ts.URL)
 	assert.NoError(t, err)
 
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	defer resp.Body.Close()
 	assert.NoError(t, err)
 

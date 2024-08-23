@@ -3,12 +3,12 @@ package main
 import (
 	"fmt"
 	"html"
-	"io/ioutil"
+	"io"
 	"log"
 	"net/http"
 	"time"
 
-	m "github.com/alex-leonhardt/k8s-mutate-webhook/pkg/mutate"
+	m "github.com/karthick-kk/k8s-mutate-webhook-addca/pkg/mutate"
 )
 
 func handleRoot(w http.ResponseWriter, r *http.Request) {
@@ -17,7 +17,7 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 
 func handleMutate(w http.ResponseWriter, r *http.Request) {
 	// read the body / request
-	body, err := ioutil.ReadAll(r.Body)
+	body, err := io.ReadAll(r.Body)
 	defer r.Body.Close()
 
 	if err != nil {

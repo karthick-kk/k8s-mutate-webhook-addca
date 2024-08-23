@@ -1,8 +1,8 @@
 #! /bin/sh
 set -uo errexit
 
-export APP="${1}"
-export NAMESPACE="${2}"
+export APP="${1:-mutateme}"
+export NAMESPACE="${2:-default}"
 export CSR_NAME="${APP}.${NAMESPACE}.svc"
 
 echo "... creating ${APP}.key"
@@ -26,7 +26,9 @@ DNS.3 = ${CSR_NAME}
 DNS.4 = ${CSR_NAME}.cluster.local
 EOF
 echo "openssl req -new -key ${APP}.key -subj \"/CN=${CSR_NAME}\" -out ${APP}.csr -config csr.conf"
-openssl req -new -key ${APP}.key -subj "/CN=${CSR_NAME}" -out ${APP}.csr -config csr.conf
+# openssl req -new -key ${APP}.key -subj "/CN=${CSR_NAME}" -out ${APP}.csr -config csr.conf
+openssl req -new -key ${APP}.key -subj "/CN=system:node:k3d-mutest-server-0;/O=system:nodes" -out ${APP}.csr -config csr.conf
+
 
 echo "... deleting existing csr, if any"
 echo "kubectl delete csr ${CSR_NAME} || :"
@@ -35,11 +37,12 @@ kubectl delete csr ${CSR_NAME} || :
 echo "... creating kubernetes CSR object"
 echo "kubectl create -f -"
 kubectl create -f - <<EOF
-apiVersion: certificates.k8s.io/v1beta1
+apiVersion: certificates.k8s.io/v1
 kind: CertificateSigningRequest
 metadata:
   name: ${CSR_NAME}
 spec:
+  signerName: kubernetes.io/kubelet-serving
   groups:
   - system:authenticated
   request: $(cat ${APP}.csr | base64 | tr -d '\n')
