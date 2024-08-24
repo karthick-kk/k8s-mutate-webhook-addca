@@ -4,6 +4,8 @@ set -uo errexit
 export APP="${1:-mutateme}"
 export NAMESPACE="${2:-default}"
 export CSR_NAME="${APP}.${NAMESPACE}.svc"
+export K3D_SERVER_NAME=k3d-mutest-server-0
+
 
 echo "... creating ${APP}.key"
 openssl genrsa -out ${APP}.key 2048
@@ -25,9 +27,10 @@ DNS.2 = ${APP}.${NAMESPACE}
 DNS.3 = ${CSR_NAME}
 DNS.4 = ${CSR_NAME}.cluster.local
 EOF
-echo "openssl req -new -key ${APP}.key -subj \"/CN=${CSR_NAME}\" -out ${APP}.csr -config csr.conf"
+# echo "openssl req -new -key ${APP}.key -subj \"/CN=${CSR_NAME}\" -out ${APP}.csr -config csr.conf"
 # openssl req -new -key ${APP}.key -subj "/CN=${CSR_NAME}" -out ${APP}.csr -config csr.conf
-openssl req -new -key ${APP}.key -subj "/CN=system:node:k3d-mutest-server-0;/O=system:nodes" -out ${APP}.csr -config csr.conf
+echo "openssl req -new -key ${APP}.key -subj \"/CN=${K3D_SERVER_NAME};/O=system:nodes\" -out ${APP}.csr -config csr.conf"
+openssl req -new -key ${APP}.key -subj "/CN=system:node:${K3D_SERVER_NAME};/O=system:nodes" -out ${APP}.csr -config csr.conf
 
 
 echo "... deleting existing csr, if any"

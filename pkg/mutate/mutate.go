@@ -26,6 +26,7 @@ func Mutate(body []byte, verbose bool) ([]byte, error) {
 
 	var err error
 	var pod *corev1.Pod
+	var patch map[string]interface{}
 
 	responseBody := []byte{}
 	ar := admReview.Request
@@ -50,17 +51,40 @@ func Mutate(body []byte, verbose bool) ([]byte, error) {
 
 		// the actual mutation is done by a string in JSONPatch style, i.e. we don't _actually_ modify the object, but
 		// tell K8S how it should modifiy it
-		p := []map[string]string{}
+		// p := []map[string]string{}
+		// for range pod.Spec.Containers {
+		// 	// patch := map[string]string{
+		// 	// 	"op":    "replace",
+		// 	// 	"path":  fmt.Sprintf("/spec/containers/%d/image", i),
+		// 	// 	"value": "debian",
+		// 	// }
+		// 	// add a volume to the pod
+
+		// 	p = append(p, patch)
+		// }
+		// add patch to add a volume to the pod
+		p := []map[string]interface{}{}
+		patch = map[string]interface{}{
+			"op":   "add",
+			"path": "/spec/volumes/-",
+			// "value": map[string]interface{}{"name": "test-volume", "emptyDir": map[string]interface{}{"sizeLimit": "0"}},
+			"value": map[string]interface{}{"name": "ca-certificates", "configMap": map[string]interface{}{"name": "trust-bundle", "items": []map[string]interface{}{{"key": "trust-bundle.pem", "path": "ca-certificates.crt"}}, "defaultMode": 420}},
+		}
+		p = append(p, patch)
+
 		for i := range pod.Spec.Containers {
-			patch := map[string]string{
-				"op":    "replace",
-				"path":  fmt.Sprintf("/spec/containers/%d/image", i),
-				"value": "debian",
+			// add a volume mount to the container
+			patch = map[string]interface{}{
+				"op":   "add",
+				"path": fmt.Sprintf("/spec/containers/%d/volumeMounts/-", i),
+				// "value": map[string]interface{}{"name": "test-volume", "mountPath": "/test-volume"},
+				"value": map[string]interface{}{"name": "ca-certificates", "mountPath": "/etc/ssl/certs/", "readOnly": true},
 			}
 			p = append(p, patch)
 		}
+
 		// parse the []map into JSON
-		resp.Patch, err = json.Marshal(p)
+		resp.Patch, _ = json.Marshal(p)
 
 		// Success, of course ;)
 		resp.Result = &metav1.Status{
