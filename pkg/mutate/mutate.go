@@ -72,6 +72,29 @@ func Mutate(body []byte, verbose bool) ([]byte, error) {
 		}
 		p = append(p, patch)
 
+		for i := range pod.Spec.InitContainers {
+			// ensure volumeMounts array exists
+			if pod.Spec.InitContainers[i].VolumeMounts == nil {
+				patch = map[string]interface{}{
+					"op":    "add",
+					"path":  fmt.Sprintf("/spec/initContainers/%d/volumeMounts", i),
+					"value": []corev1.VolumeMount{},
+				}
+				p = append(p, patch)
+			}
+			// add a volume mount to the init container
+			patch = map[string]interface{}{
+				"op":   "add",
+				"path": fmt.Sprintf("/spec/initContainers/%d/volumeMounts/-", i),
+				"value": map[string]interface{}{
+					"name":      "ca-certificates",
+					"mountPath": "/etc/ssl/certs/",
+					"readOnly":  true,
+				},
+			}
+			p = append(p, patch)
+		}
+
 		for i := range pod.Spec.Containers {
 			// add a volume mount to the container
 			patch = map[string]interface{}{
@@ -83,17 +106,6 @@ func Mutate(body []byte, verbose bool) ([]byte, error) {
 			p = append(p, patch)
 		}
 
-		for i := range pod.Spec.InitContainers {
-			// add a volume mount to the init container
-			patch = map[string]interface{}{
-				"op":   "add",
-				"path": fmt.Sprintf("/spec/initContainers/%d/volumeMounts/-", i),
-				// "value": map[string]interface{}{"name": "test-volume", "mountPath": "/test-volume"},
-				"value": map[string]interface{}{"name": "ca-certificates", "mountPath": "/etc/ssl/certs/", "readOnly": true},
-			}
-			p = append(p, patch)
-		}
-		
 		// parse the []map into JSON
 		resp.Patch, _ = json.Marshal(p)
 
