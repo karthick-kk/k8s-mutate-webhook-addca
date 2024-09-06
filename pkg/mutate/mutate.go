@@ -8,6 +8,7 @@ import (
 	"log"
 
 	v1beta1 "k8s.io/api/admission/v1beta1"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -26,7 +27,10 @@ func Mutate(body []byte, verbose bool) ([]byte, error) {
 
 	var err error
 	var pod *corev1.Pod
+	var job *batchv1.Job
 	var patch map[string]interface{}
+	var testVol bool
+	testVol = false
 
 	responseBody := []byte{}
 	ar := admReview.Request
@@ -35,8 +39,14 @@ func Mutate(body []byte, verbose bool) ([]byte, error) {
 	if ar != nil {
 
 		// get the Pod object and unmarshal it into its struct, if we cannot, we might as well stop here
-		if err := json.Unmarshal(ar.Object.Raw, &pod); err != nil {
-			return nil, fmt.Errorf("unable unmarshal pod json object %v", err)
+		if ar.Kind.Kind == "Pod" {
+			if err := json.Unmarshal(ar.Object.Raw, &pod); err != nil {
+				return nil, fmt.Errorf("unable unmarshal pod json object %v", err)
+			}
+		} else if ar.Kind.Kind == "Job" {
+			if err := json.Unmarshal(ar.Object.Raw, &job); err != nil {
+				return nil, fmt.Errorf("unable unmarshal job json object %v", err)
+			}
 		}
 		// set response options
 		resp.Allowed = true
@@ -64,48 +74,118 @@ func Mutate(body []byte, verbose bool) ([]byte, error) {
 		// }
 		// add patch to add a volume to the pod
 		p := []map[string]interface{}{}
-		patch = map[string]interface{}{
-			"op":   "add",
-			"path": "/spec/volumes/-",
-			// "value": map[string]interface{}{"name": "test-volume", "emptyDir": map[string]interface{}{"sizeLimit": "0"}},
-			"value": map[string]interface{}{"name": "ca-certificates", "configMap": map[string]interface{}{"name": "trust-bundle", "items": []map[string]interface{}{{"key": "trust-bundle.pem", "path": "ca-certificates.crt"}}, "defaultMode": 420}},
-		}
-		p = append(p, patch)
+		if ar.Kind.Kind == "Pod" {
+			for i := range pod.Spec.Volumes {
+				if pod.Spec.Volumes[i].Name == "ca-certificates" {
+					testVol = true
+				}
+			}
+			if !testVol {
+				patch = map[string]interface{}{
+					"op":   "add",
+					"path": "/spec/volumes/-",
+					// "value": map[string]interface{}{"name": "test-volume", "emptyDir": map[string]interface{}{"sizeLimit": "0"}},
+					"value": map[string]interface{}{"name": "ca-certificates", "configMap": map[string]interface{}{"name": "trust-bundle", "items": []map[string]interface{}{{"key": "trust-bundle.pem", "path": "ca-certificates.crt"}}, "defaultMode": 420}},
+				}
+				p = append(p, patch)
 
-		for i := range pod.Spec.InitContainers {
-			// ensure volumeMounts array exists
-			if pod.Spec.InitContainers[i].VolumeMounts == nil {
+				for i := range pod.Spec.InitContainers {
+					// ensure volumeMounts array exists
+					if pod.Spec.InitContainers[i].VolumeMounts == nil {
+						patch = map[string]interface{}{
+							"op":    "add",
+							"path":  fmt.Sprintf("/spec/initContainers/%d/volumeMounts", i),
+							"value": []corev1.VolumeMount{},
+						}
+						p = append(p, patch)
+					}
+					// add a volume mount to the init container
+					patch = map[string]interface{}{
+						"op":   "add",
+						"path": fmt.Sprintf("/spec/initContainers/%d/volumeMounts/-", i),
+						"value": map[string]interface{}{
+							"name":      "ca-certificates",
+							"mountPath": "/etc/ssl/certs/",
+							"readOnly":  true,
+						},
+					}
+					p = append(p, patch)
+				}
+			}
+
+			testVol = false
+			for i := range pod.Spec.Containers {
+				// add a volume mount to the container
+				// add volume mount only if it doesn't already exist
+				for j := range pod.Spec.Containers[i].VolumeMounts {
+					if pod.Spec.Containers[i].VolumeMounts[j].Name == "ca-certificates" {
+						testVol = true
+					}
+				}
+				if !testVol {
+					patch = map[string]interface{}{
+						"op":   "add",
+						"path": fmt.Sprintf("/spec/containers/%d/volumeMounts/-", i),
+						// "value": map[string]interface{}{"name": "test-volume", "mountPath": "/test-volume"},
+						"value": map[string]interface{}{"name": "ca-certificates", "mountPath": "/etc/ssl/certs/", "readOnly": true},
+					}
+					p = append(p, patch)
+					// add additional volume mounts to suse containers -> /var/lib/ca-certificates/ca-bundle.pem
+					patch = map[string]interface{}{
+						"op":   "add",
+						"path": fmt.Sprintf("/spec/containers/%d/volumeMounts/-", i),
+						// "value": map[string]interface{}{"name": "test-volume", "mountPath": "/test-volume"},
+						"value": map[string]interface{}{"name": "ca-certificates", "mountPath": "/var/lib/ca-certificates/ca-bundle.pem", "subPath": "ca-certificates.crt", "readOnly": true},
+					}
+					p = append(p, patch)
+				}
+			}
+		} else if ar.Kind.Kind == "Job" {
+			patch = map[string]interface{}{
+				"op":    "add",
+				"path":  "/spec/template/spec/volumes/-",
+				"value": map[string]interface{}{"name": "ca-certificates", "configMap": map[string]interface{}{"name": "trust-bundle", "items": []map[string]interface{}{{"key": "trust-bundle.pem", "path": "ca-certificates.crt"}}, "defaultMode": 420}},
+			}
+			p = append(p, patch)
+			for i := range job.Spec.Template.Spec.Containers {
+				// ensure volumeMounts array exists
+				if job.Spec.Template.Spec.Containers[i].VolumeMounts == nil {
+					patch = map[string]interface{}{
+						"op":    "add",
+						"path":  fmt.Sprintf("/spec/template/spec/containers/%d/volumeMounts", i),
+						"value": []corev1.VolumeMount{},
+					}
+					p = append(p, patch)
+				}
+				// add a volume mount to the container
 				patch = map[string]interface{}{
 					"op":    "add",
-					"path":  fmt.Sprintf("/spec/initContainers/%d/volumeMounts", i),
-					"value": []corev1.VolumeMount{},
+					"path":  fmt.Sprintf("/spec/template/spec/containers/%d/volumeMounts/-", i),
+					"value": map[string]interface{}{"name": "ca-certificates", "mountPath": "/etc/ssl/certs/", "readOnly": true},
 				}
 				p = append(p, patch)
 			}
-			// add a volume mount to the init container
-			patch = map[string]interface{}{
-				"op":   "add",
-				"path": fmt.Sprintf("/spec/initContainers/%d/volumeMounts/-", i),
-				"value": map[string]interface{}{
-					"name":      "ca-certificates",
-					"mountPath": "/etc/ssl/certs/",
-					"readOnly":  true,
-				},
-			}
-			p = append(p, patch)
-		}
 
-		for i := range pod.Spec.Containers {
-			// add a volume mount to the container
-			patch = map[string]interface{}{
-				"op":   "add",
-				"path": fmt.Sprintf("/spec/containers/%d/volumeMounts/-", i),
-				// "value": map[string]interface{}{"name": "test-volume", "mountPath": "/test-volume"},
-				"value": map[string]interface{}{"name": "ca-certificates", "mountPath": "/etc/ssl/certs/", "readOnly": true},
+			// add additional volume mounts to suse containers -> /var/lib/ca-certificates/ca-bundle.pem
+			for i := range job.Spec.Template.Spec.Containers {
+				// ensure volumeMounts array exists
+				if job.Spec.Template.Spec.Containers[i].VolumeMounts == nil {
+					patch = map[string]interface{}{
+						"op":    "add",
+						"path":  fmt.Sprintf("/spec/template/spec/containers/%d/volumeMounts", i),
+						"value": []corev1.VolumeMount{},
+					}
+					p = append(p, patch)
+				}
+				// add a volume mount to the container
+				patch = map[string]interface{}{
+					"op":    "add",
+					"path":  fmt.Sprintf("/spec/template/spec/containers/%d/volumeMounts/-", i),
+					"value": map[string]interface{}{"name": "ca-certificates", "mountPath": "/var/lib/ca-certificates/ca-bundle.pem", "subPath": "ca-certificates.crt", "readOnly": true},
+				}
+				p = append(p, patch)
 			}
-			p = append(p, patch)
 		}
-
 		// parse the []map into JSON
 		resp.Patch, _ = json.Marshal(p)
 
