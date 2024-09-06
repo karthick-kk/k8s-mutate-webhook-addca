@@ -141,6 +141,16 @@ func Mutate(body []byte, verbose bool) ([]byte, error) {
 				}
 			}
 		} else if ar.Kind.Kind == "Job" {
+			// ensure volumes array exists
+			if job.Spec.Template.Spec.Volumes == nil {
+				patch = map[string]interface{}{
+					"op":    "add",
+					"path":  "/spec/template/spec/volumes",
+					"value": []corev1.Volume{},
+				}
+				p = append(p, patch)
+			}
+
 			patch = map[string]interface{}{
 				"op":    "add",
 				"path":  "/spec/template/spec/volumes/-",
